@@ -102,7 +102,10 @@
         <h3>🔐 Вхід</h3>
         <form onsubmit="submitLogin(event)">
             <input type="email" id="login-email" placeholder="Email" required autocomplete="email">
-            <input type="password" id="login-password" placeholder="Пароль" required autocomplete="current-password">
+            <div class="pwd-wrap">
+                <input type="password" id="login-password" placeholder="Пароль" required autocomplete="current-password">
+                <button type="button" class="pwd-toggle" onclick="togglePwd('login-password', this)" tabindex="-1">&#128065;</button>
+            </div>
             <div id="login-error" class="modal-error" style="display:none;"></div>
             <div style="display:flex; gap:0.5rem; margin-top:0.25rem;">
                 <button type="submit" class="btn" style="flex:1;">Увійти</button>
@@ -118,7 +121,10 @@
         <form onsubmit="submitRegister(event)">
             <input type="text" id="reg-user-name" placeholder="Ваше ім'я (ПІБ капітана)" required autocomplete="name">
             <input type="email" id="reg-user-email" placeholder="Email" required autocomplete="email">
-            <input type="password" id="reg-user-password" placeholder="Пароль (мін. 6 символів)" required autocomplete="new-password" minlength="6">
+            <div class="pwd-wrap">
+                <input type="password" id="reg-user-password" placeholder="Пароль (мін. 6 символів)" required autocomplete="new-password" minlength="6">
+                <button type="button" class="pwd-toggle" onclick="togglePwd('reg-user-password', this)" tabindex="-1">&#128065;</button>
+            </div>
             <div id="register-error" class="modal-error" style="display:none;"></div>
             <div style="display:flex; gap:0.5rem; margin-top:0.25rem;">
                 <button type="submit" class="btn" style="flex:1;">Зареєструватися</button>

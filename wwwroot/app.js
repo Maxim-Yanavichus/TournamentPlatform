@@ -56,6 +56,13 @@ function closeModals() {
     document.getElementById('modal-register').classList.add('hidden');
 }
 
+function togglePwd(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const show  = input.type === 'password';
+    input.type  = show ? 'text' : 'password';
+    btn.textContent = show ? '🙈' : '👁';
+}
+
 async function submitLogin(e) {
     e.preventDefault();
     const errDiv = document.getElementById('login-error');
