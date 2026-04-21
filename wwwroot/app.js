@@ -382,7 +382,22 @@ async function advanceStage(id, newStatus, warn) {
 // Реєстрація команди на турнір
 async function handleTeamRegistration(e) {
     e.preventDefault();
-    const nameInput = document.getElementById('reg-team-name');
+    const nameInput    = document.getElementById('reg-team-name');
+    const captainName  = document.getElementById('reg-captain-name').value.trim().toLowerCase();
+
+    // Перевірка унікальності ПІБ серед учасників
+    const filledNames = pendingMembers
+        .filter(m => m.name.trim())
+        .map(m => m.name.trim().toLowerCase());
+    const uniqueNames = new Set(filledNames);
+    if (filledNames.length !== uniqueNames.size) {
+        alert('⚠ Кожен учасник повинен мати унікальне ПІБ!');
+        return;
+    }
+    if (captainName && filledNames.includes(captainName)) {
+        alert('⚠ ПІБ учасника не може співпадати з ПІБ капітана!');
+        return;
+    }
 
     // Перевірка унікальності email серед учасників
     const filledEmails = pendingMembers
