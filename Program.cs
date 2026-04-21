@@ -1,6 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+    WebRootPath = "wwwroot"
+});
+
 // Налаштування сервісів та бази даних
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite("Data Source=tournaments.db"));
 var app = builder.Build();
