@@ -1,4 +1,4 @@
-// ─── Робота з профілями користувачів ─────────────────────────────────────────
+// Робота з профілями користувачів
 const FIXED_PROFILES = [
     { id: 'sys_admin', name: '👑 Адміністратор', role: 'Admin', teamId: null },
     { id: 'sys_jury',  name: '⚖️ Журі',          role: 'Jury',  teamId: null },
@@ -78,7 +78,7 @@ async function validateProfileTeamIds() {
     } catch { }
 }
 
-// ─── Глобальний стан додатка ─────────────────────────────────────────────────
+// Глобальний стан додатка
 const _p = currentProfile();
 let currentRole = _p.role;
 let myTeamId = _p.teamId;
@@ -87,7 +87,7 @@ let currentTournamentId = null;
 let currentJuryTournamentId = null;
 let pendingMembers = [];
 
-// ─── Керування списком учасників команди ─────────────────────────────────────
+// Керування списком учасників команди
 function addMemberInput() {
     if (pendingMembers.length >= 10) return;
     pendingMembers.push({ name: '', email: '' });
@@ -115,7 +115,7 @@ function renderMemberInputs() {
     }
 }
 
-// ─── Взаємодія з API (вспоміжна функція) ─────────────────────────────────────
+// Взаємодія з API (вспоміжна функція)
 async function api(path, method = 'GET', body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json', 'X-User-Role': currentRole } };
     if (body) opts.body = JSON.stringify(body);
@@ -128,7 +128,7 @@ async function api(path, method = 'GET', body = null) {
     return res.json();
 }
 
-// ─── Управління інтерфейсом (показ в'ю та помилок) ───────────────────────────
+// Управління інтерфейсом (показ в'ю та помилок)
 function updateUIForRole() {
     document.body.className = `role-${currentRole.toLowerCase()}`;
     document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', currentRole !== 'Admin'));
@@ -159,7 +159,7 @@ const STATUS_ICON  = { Draft: '📝', Registration: '📋', Running: '🏃', Eva
 const sLabel = s => STATUS_LABEL[s] || s;
 const sIcon  = s => STATUS_ICON[s] || '';
 
-// ─── Список турнірів (Головна сторінка) ──────────────────────────────────────
+// Список турнірів (Головна сторінка)
 async function loadTournaments() {
     tournaments = await api('/api/tournaments');
     const wrap = document.getElementById('tournament-list');
@@ -205,7 +205,7 @@ document.getElementById('form-create-tournament').onsubmit = async e => {
     showView('tournaments');
 };
 
-// ─── Деталі турніру та Керування статусами ──────────────────────────────────
+// Деталі турніру та Керування статусами
 async function openTournament(id) {
     currentTournamentId = id;
     tournaments = await api('/api/tournaments');
@@ -348,7 +348,7 @@ async function advanceStage(id, newStatus, warn) {
     openTournament(id);
 }
 
-// ─── Реєстрація команди на турнір ────────────────────────────────────────────
+// Реєстрація команди на турнір
 async function handleTeamRegistration(e) {
     e.preventDefault();
     const nameInput  = document.getElementById('reg-team-name');
@@ -374,7 +374,7 @@ async function handleTeamRegistration(e) {
     }
 }
 
-// ─── Керування Раундами (для адміністратора) ─────────────────────────────────
+// Керування Раундами (для адміністратора)
 async function loadRounds(tournamentId) {
     const rounds = await api(`/api/rounds/${tournamentId}`);
     const now = new Date();
@@ -432,7 +432,7 @@ async function submitNewRound() {
     loadRounds(currentTournamentId);
 }
 
-// ─── Подача та редагування робіт командами ──────────────────────────────────
+// Подача та редагування робіт командами
 async function loadActiveRounds(tournamentId, locked, editOnly, regStage) {
     const rounds = await api(`/api/rounds/${tournamentId}`);
     const wrap   = document.getElementById('active-rounds-for-submission');
@@ -535,7 +535,7 @@ async function submitWork(e, roundId) {
     } catch (err) { alert('❌ ' + err.message); }
 }
 
-// ─── Система Оголошень (Announcements) ───────────────────────────────────────
+// Система Оголошень (Announcements)
 async function loadAnnouncements(tournamentId) {
     const sec = document.getElementById('announcements-section');
     if (!sec) return;
@@ -603,7 +603,7 @@ async function deleteAnnouncement(id, tournamentId) {
     loadAnnouncements(tournamentId);
 }
 
-// ─── Таблиця лідерів (Leaderboard) ───────────────────────────────────────────
+// Таблиця лідерів (Leaderboard)
 async function loadLeaderboard(tournamentId) {
     const data   = await api(`/api/leaderboard/${tournamentId}`);
     const t      = tournaments.find(x => x.id === tournamentId);
@@ -620,7 +620,7 @@ async function loadLeaderboard(tournamentId) {
     showView('leaderboard');
 }
 
-// ─── Робоче місце Журі (Оцінювання) ──────────────────────────────────────────
+// Робоче місце Журі (Оцінювання)
 function openJuryView(tournamentId) {
     currentJuryTournamentId = tournamentId;
     showView('jury');
@@ -710,7 +710,7 @@ async function evaluateSubmission(e, submissionId) {
     setTimeout(() => { btn.innerText = 'Оновити оцінку'; btn.style.background=''; btn.style.border='1px solid #10b981'; }, 1500);
 }
 
-// ─── Запуск ініціалізації додатка ────────────────────────────────────────────
+// Запуск ініціалізації додатка
 renderProfileSelect();
 updateUIForRole();
 validateProfileTeamIds().then(() => {

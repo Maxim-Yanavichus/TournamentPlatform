@@ -1,22 +1,17 @@
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
-// ─── Налаштування сервісів та бази даних ────────────────────────────────────
+// Налаштування сервісів та бази даних
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite("Data Source=tournaments.db"));
 var app = builder.Build();
 
-// ─── Ініціалізація та міграція бази даних ────────────────────────────────────
+// Ініціалізація бази даних
 using (var scope = app.Services.CreateScope()) {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
-    try { db.Database.ExecuteSqlRaw("ALTER TABLE Tournaments ADD COLUMN MaxTeams INTEGER NULL"); } catch { }
-    try { db.Database.ExecuteSqlRaw("ALTER TABLE Tournaments ADD COLUMN EndDate TEXT NULL"); } catch { }
-    try { db.Database.ExecuteSqlRaw("ALTER TABLE Tournaments ADD COLUMN ResultsDate TEXT NULL"); } catch { }
-    try { db.Database.ExecuteSqlRaw("ALTER TABLE Submissions ADD COLUMN LastModified TEXT NULL"); } catch { }
-    try { db.Database.ExecuteSqlRaw("CREATE TABLE IF NOT EXISTS Announcements (Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, TournamentId INTEGER NOT NULL, Content TEXT NOT NULL, CreatedAt TEXT NOT NULL)"); } catch { }
 }
 
-// ─── Обробка статичних файлів (Frontend) ─────────────────────────────────────
+// Обробка статичних файлів (Frontend)
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions {
     OnPrepareResponse = ctx => {
@@ -26,7 +21,7 @@ app.UseStaticFiles(new StaticFileOptions {
     }
 });
 
-// ─── Ендпоінти для Турнірів ──────────────────────────────────────────────────
+// Ендпоінти для Турнірів
 app.MapGet("/api/tournaments", async (AppDbContext db) => await db.Tournaments.ToListAsync());
 
 app.MapPost("/api/tournaments", async (Tournament t, AppDbContext db) => {
@@ -43,7 +38,7 @@ app.MapPatch("/api/tournaments/{id}/status", async (int id, string status, AppDb
     return Results.Ok(t);
 });
 
-// ─── Ендпоінти для Команд ────────────────────────────────────────────────────
+// Ендпоінти для Команд
 app.MapGet("/api/teams", async (AppDbContext db) => await db.Teams.ToListAsync());
 app.MapGet("/api/teams/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Teams.Where(t => t.TournamentId == tournamentId).ToListAsync());
@@ -62,7 +57,7 @@ app.MapPost("/api/teams", async (Team team, AppDbContext db) => {
     return Results.Ok(team);
 });
 
-// ─── Ендпоінти для Раундів ───────────────────────────────────────────────────
+// Ендпоінти для Раундів
 app.MapGet("/api/rounds/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Rounds.Where(r => r.TournamentId == tournamentId).ToListAsync());
 
@@ -72,7 +67,7 @@ app.MapPost("/api/rounds", async (Round round, AppDbContext db) => {
     return Results.Ok(round);
 });
 
-// ─── Ендпоінти для Подачі робіт (Submissions) ────────────────────────────────
+// Ендпоінти для Подачі робіт (Submissions)
 app.MapGet("/api/submissions", async (AppDbContext db, int? tournamentId) => {
     var rounds = await db.Rounds.ToListAsync();
     var teams  = await db.Teams.ToListAsync();
@@ -116,7 +111,7 @@ app.MapPost("/api/submissions", async (Submission sub, AppDbContext db) => {
     return Results.Ok(existing ?? sub);
 });
 
-// ─── Ендпоінти для Оцінювання (Evaluations) ──────────────────────────────────
+// Ендпоінти для Оцінювання (Evaluations)
 app.MapGet("/api/evaluations", async (AppDbContext db) => await db.Evaluations.ToListAsync());
 app.MapGet("/api/evaluations/{submissionId}", async (int submissionId, AppDbContext db) =>
     await db.Evaluations.Where(e => e.SubmissionId == submissionId).ToListAsync());
@@ -134,7 +129,7 @@ app.MapPost("/api/evaluations", async (Evaluation eval, AppDbContext db) => {
     return Results.Ok(eval);
 });
 
-// ─── Ендпоінти для Таблиці лідерів (Leaderboard) ─────────────────────────────
+// Ендпоінти для Таблиці лідерів (Leaderboard)
 app.MapGet("/api/leaderboard/{tournamentId}", async (int tournamentId, AppDbContext db) => {
     var teams  = await db.Teams.Where(t => t.TournamentId == tournamentId).ToListAsync();
     var subs   = await db.Submissions.ToListAsync();
@@ -149,7 +144,7 @@ app.MapGet("/api/leaderboard/{tournamentId}", async (int tournamentId, AppDbCont
     return Results.Ok(result);
 });
 
-// ─── Ендпоінти для Оголошень (Announcements) ─────────────────────────────────
+// Ендпоінти для Оголошень (Announcements)
 app.MapGet("/api/announcements/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Announcements.Where(a => a.TournamentId == tournamentId).OrderByDescending(a => a.CreatedAt).ToListAsync());
 
@@ -170,7 +165,7 @@ app.MapDelete("/api/announcements/{id}", async (int id, AppDbContext db) => {
 
 app.Run();
 
-// ─── Моделі даних та Контекст БД ─────────────────────────────────────────────
+// Моделі даних та Контекст БД
 public class Tournament {
     public int Id { get; set; }
     public string Name { get; set; } = "";
