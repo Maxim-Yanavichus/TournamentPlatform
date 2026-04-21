@@ -1,91 +1,107 @@
-// Робота з профілями користувачів
-const FIXED_PROFILES = [
-    { id: 'sys_admin', name: '👑 Адміністратор', role: 'Admin', teamId: null },
-    { id: 'sys_jury', name: '⚖️ Журі', role: 'Jury', teamId: null },
-];
-
-function loadProfiles() {
-    const raw = localStorage.getItem('teamProfiles');
-    return raw ? JSON.parse(raw) : [];
-}
-function saveProfiles(p) { localStorage.setItem('teamProfiles', JSON.stringify(p)); }
-function allProfiles() { return [...FIXED_PROFILES, ...loadProfiles()]; }
-
-function currentProfile() {
-    const id = localStorage.getItem('currentProfileId') || 'sys_admin';
-    return allProfiles().find(p => p.id === id) || FIXED_PROFILES[0];
-}
-
-function renderProfileSelect() {
-    const cur = currentProfile();
-    document.getElementById('profile-select').innerHTML = allProfiles().map(p =>
-        `<option value="${p.id}" ${p.id === cur.id ? 'selected' : ''}>${p.name}</option>`
-    ).join('');
-    document.querySelectorAll('.jury-panel-btn').forEach(el =>
-        el.classList.toggle('hidden', cur.role !== 'Jury')
-    );
-    document.getElementById('profile-current-label').textContent = cur.name;
-}
-
-function switchProfile(id) {
-    localStorage.setItem('currentProfileId', id);
-    const p = currentProfile();
-    currentRole = p.role;
-    myTeamId = p.teamId;
-    currentJuryTournamentId = null;
-    renderProfileSelect();
-    updateUIForRole();
-    showView('tournaments');
-}
-
-function addTeamProfile() {
-    const name = prompt('Введіть назву нової команди-учасника:');
-    if (!name?.trim()) return;
-    const profiles = loadProfiles();
-    const id = 'team_' + Date.now();
-    profiles.push({ id, name: '👥 ' + name.trim(), role: 'Team', teamId: null });
-    saveProfiles(profiles);
-    localStorage.setItem('currentProfileId', id);
-    switchProfile(id);
-}
-
-function updateProfileTeamId(teamId) {
-    const profiles = loadProfiles();
-    const id = localStorage.getItem('currentProfileId');
-    const p = profiles.find(x => x.id === id);
-    if (p) { p.teamId = teamId; saveProfiles(profiles); myTeamId = teamId; }
-}
-
-async function validateProfileTeamIds() {
-    const userProfiles = loadProfiles();
-    try {
-        const dbTeams = await fetch('/api/teams').then(r => r.json());
-        if (dbTeams.length === 0 && userProfiles.length > 0) {
-            saveProfiles([]);
-            localStorage.setItem('currentProfileId', 'sys_admin');
-            currentRole = 'Admin';
-            myTeamId = null;
-            return;
-        }
-        if (!userProfiles.length) return;
-        const dbIds = new Set(dbTeams.map(t => +t.id));
-        let changed = false;
-        const updated = userProfiles.map(p => {
-            if (p.teamId && !dbIds.has(+p.teamId)) { changed = true; return { ...p, teamId: null }; }
-            return p;
-        });
-        if (changed) { saveProfiles(updated); myTeamId = currentProfile().teamId; }
-    } catch { }
-}
-
 // Глобальний стан додатка
-const _p = currentProfile();
-let currentRole = _p.role;
-let myTeamId = _p.teamId;
+let currentUser = null;
 let tournaments = [];
 let currentTournamentId = null;
 let currentJuryTournamentId = null;
 let pendingMembers = [];
+
+// Автентифікація — ініціалізація та UI
+async function initAuth() {
+    try {
+        const data = await fetch('/api/auth/me').then(r => r.json());
+        currentUser = data.authenticated ? data : null;
+    } catch {
+        currentUser = null;
+    }
+    renderAuthUI();
+    updateUIForRole();
+}
+
+function renderAuthUI() {
+    const ui = document.getElementById('auth-ui');
+    if (!currentUser) {
+        ui.innerHTML = `
+            <button onclick="openLoginModal()" class="btn btn-secondary" style="padding:7px 14px; font-size:0.85rem;">Увійти</button>
+            <button onclick="openRegisterModal()" class="btn" style="padding:7px 14px; font-size:0.85rem;">Я не зареєстрований</button>`;
+    } else {
+        const icons = { Admin: '👑', Jury: '⚖️', Team: '👥' };
+        const icon  = icons[currentUser.role] || '';
+        const juryBtn = currentUser.role === 'Jury'
+            ? `<button class="btn btn-secondary" onclick="openJuryView(null)" style="padding:7px 14px; font-size:0.85rem; border:1px solid var(--accent);">⚖️ Всі роботи</button>`
+            : '';
+        ui.innerHTML = `
+            <span style="color:var(--text-muted); font-size:0.85rem; white-space:nowrap;">${icon} ${currentUser.name}</span>
+            ${juryBtn}
+            <button onclick="doLogout()" class="btn btn-secondary" style="padding:7px 14px; font-size:0.85rem;">Вийти</button>`;
+    }
+}
+
+function openLoginModal() {
+    document.getElementById('login-error').style.display = 'none';
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('modal-login').classList.remove('hidden');
+    setTimeout(() => document.getElementById('login-email').focus(), 50);
+}
+
+function openRegisterModal() {
+    document.getElementById('register-error').style.display = 'none';
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('modal-register').classList.remove('hidden');
+    setTimeout(() => document.getElementById('reg-user-name').focus(), 50);
+}
+
+function closeModals() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById('modal-login').classList.add('hidden');
+    document.getElementById('modal-register').classList.add('hidden');
+}
+
+async function submitLogin(e) {
+    e.preventDefault();
+    const errDiv = document.getElementById('login-error');
+    errDiv.style.display = 'none';
+    try {
+        currentUser = await api('/api/auth/login', 'POST', {
+            email:    document.getElementById('login-email').value,
+            password: document.getElementById('login-password').value
+        });
+        closeModals();
+        renderAuthUI();
+        updateUIForRole();
+        loadTournaments();
+    } catch (err) {
+        errDiv.textContent = '⚠ ' + (err.message || 'Помилка входу');
+        errDiv.style.display = 'block';
+    }
+}
+
+async function submitRegister(e) {
+    e.preventDefault();
+    const errDiv = document.getElementById('register-error');
+    errDiv.style.display = 'none';
+    try {
+        currentUser = await api('/api/auth/register-team', 'POST', {
+            name:     document.getElementById('reg-user-name').value.trim(),
+            email:    document.getElementById('reg-user-email').value,
+            password: document.getElementById('reg-user-password').value
+        });
+        closeModals();
+        renderAuthUI();
+        updateUIForRole();
+        loadTournaments();
+    } catch (err) {
+        errDiv.textContent = '⚠ ' + (err.message || 'Помилка реєстрації');
+        errDiv.style.display = 'block';
+    }
+}
+
+async function doLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    currentUser = null;
+    renderAuthUI();
+    updateUIForRole();
+    showView('tournaments');
+}
 
 // Керування списком учасників команди
 function addMemberInput() {
@@ -115,9 +131,9 @@ function renderMemberInputs() {
     }
 }
 
-// Взаємодія з API (вспоміжна функція)
+// Взаємодія з API
 async function api(path, method = 'GET', body = null) {
-    const opts = { method, headers: { 'Content-Type': 'application/json', 'X-User-Role': currentRole } };
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(path, opts);
     if (!res.ok) {
@@ -130,10 +146,11 @@ async function api(path, method = 'GET', body = null) {
 
 // Управління інтерфейсом (показ в'ю та помилок)
 function updateUIForRole() {
-    document.body.className = `role-${currentRole.toLowerCase()}`;
-    document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', currentRole !== 'Admin'));
-    document.querySelectorAll('.team-only').forEach(el => el.classList.toggle('hidden', currentRole !== 'Team'));
-    document.querySelectorAll('.jury-only').forEach(el => el.classList.toggle('hidden', currentRole !== 'Jury'));
+    const role = currentUser?.role || 'Guest';
+    document.body.className = `role-${role.toLowerCase()}`;
+    document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', role !== 'Admin'));
+    document.querySelectorAll('.team-only').forEach(el => el.classList.toggle('hidden', role !== 'Team'));
+    document.querySelectorAll('.jury-only').forEach(el => el.classList.toggle('hidden', role !== 'Jury'));
 }
 
 function showView(viewId) {
@@ -155,9 +172,9 @@ function showFieldError(input, msg) {
 }
 
 const STATUS_LABEL = { Draft: 'Чернетка', Registration: 'Реєстрація', Running: 'Триває', Evaluation: 'Оцінювання', Finished: 'Завершено' };
-const STATUS_ICON = { Draft: '📝', Registration: '📋', Running: '🏃', Evaluation: '⚖️', Finished: '🏁' };
+const STATUS_ICON  = { Draft: '📝', Registration: '📋', Running: '🏃', Evaluation: '⚖️', Finished: '🏁' };
 const sLabel = s => STATUS_LABEL[s] || s;
-const sIcon = s => STATUS_ICON[s] || '';
+const sIcon  = s => STATUS_ICON[s]  || '';
 
 // Список турнірів (Головна сторінка)
 async function loadTournaments() {
@@ -193,11 +210,11 @@ document.getElementById('form-create-tournament').onsubmit = async e => {
     const maxT = document.getElementById('t-max-teams').value;
     const resD = document.getElementById('t-results-date').value;
     await api('/api/tournaments', 'POST', {
-        name: document.getElementById('t-name').value,
-        description: document.getElementById('t-desc').value,
+        name:              document.getElementById('t-name').value,
+        description:       document.getElementById('t-desc').value,
         registrationStart: document.getElementById('t-reg-start').value || new Date().toISOString(),
-        registrationEnd: document.getElementById('t-reg-end').value || new Date().toISOString(),
-        maxTeams: maxT ? parseInt(maxT) : null,
+        registrationEnd:   document.getElementById('t-reg-end').value   || new Date().toISOString(),
+        maxTeams:    maxT ? parseInt(maxT) : null,
         resultsDate: resD ? new Date(resD).toISOString() : null,
         status: 'Registration'
     });
@@ -213,19 +230,19 @@ async function openTournament(id) {
     if (!t) return;
 
     const isFinished = t.status === 'Finished';
-    const isEval = t.status === 'Evaluation';
-    const isRunning = t.status === 'Running';
-    const now = new Date();
-    const regEnd = new Date(t.registrationEnd);
+    const isEval     = t.status === 'Evaluation';
+    const isRunning  = t.status === 'Running';
+    const now        = new Date();
+    const regEnd     = new Date(t.registrationEnd);
     const regExpired = regEnd < now;
 
     let banner = '';
-    if (isFinished) banner = `<div class="status-full-banner banner-finished">🏁 Цей турнір завершено. Реєстрація та подачі закриті.</div>`;
-    else if (isEval) banner = `<div class="status-full-banner banner-eval">⚖️ Проводиться оцінювання робіт.</div>`;
+    if (isFinished)     banner = `<div class="status-full-banner banner-finished">🏁 Цей турнір завершено. Реєстрація та подачі закриті.</div>`;
+    else if (isEval)    banner = `<div class="status-full-banner banner-eval">⚖️ Проводиться оцінювання робіт.</div>`;
     else if (isRunning) banner = `<div class="status-full-banner banner-running">🏃 Турнір в процесі. Здавайте роботи!</div>`;
 
     const extra = [];
-    if (t.maxTeams) extra.push(`👥 Макс. команд: ${t.maxTeams}`);
+    if (t.maxTeams)    extra.push(`👥 Макс. команд: ${t.maxTeams}`);
     if (t.resultsDate) extra.push(`🏆 Оголошення: ${new Date(t.resultsDate).toLocaleDateString('uk-UA')}`);
 
     document.getElementById('details-content').innerHTML = `
@@ -242,14 +259,19 @@ async function openTournament(id) {
 
     // Блок реєстрації команди
     const regWrap = document.getElementById('team-registration');
-    if (myTeamId) {
-        const list = await api(`/api/teams/${id}`);
-        if (!list.some(t => +t.id === +myTeamId)) updateProfileTeamId(null);
-    }
-    if (currentRole === 'Team' && t.status === 'Registration') {
+    const myTeamId = currentUser?.teamId;
+    const role     = currentUser?.role;
+
+    if (role === 'Team' && t.status === 'Registration') {
         regWrap.classList.remove('hidden');
         if (myTeamId) {
-            regWrap.innerHTML = `<div class="success-banner">✅ Ваш профіль зареєстрований у цьому турнірі!</div>`;
+            const tournTeams = await api(`/api/teams/${id}`);
+            const isHere = tournTeams.some(tm => +tm.id === +myTeamId);
+            if (isHere) {
+                regWrap.innerHTML = `<div class="success-banner">✅ Ваша команда зареєстрована в цьому турнірі!</div>`;
+            } else {
+                regWrap.innerHTML = `<div class="status-full-banner banner-info">ℹ️ Ви вже зареєстровані в іншому турнірі.</div>`;
+            }
         } else if (regExpired) {
             regWrap.innerHTML = `<div class="status-full-banner banner-finished">⌛ Термін реєстрації закінчився <strong>${regEnd.toLocaleDateString('uk-UA')}</strong>. Нові команди не приймаються.</div>`;
         } else {
@@ -259,8 +281,10 @@ async function openTournament(id) {
                 <h3>Реєстрація Команди</h3>
                 <form id="form-team-reg">
                     <div><input type="text" placeholder="Назва команди" id="reg-team-name" required></div>
-                    <input type="text" placeholder="Капітан (ПІБ)" id="reg-captain-name" required>
-                    <input type="email" placeholder="Email капітана" id="reg-captain-email" required>
+                    <input type="text" placeholder="Капітан (ПІБ)" id="reg-captain-name" value="${currentUser?.name || ''}" required>
+                    <div style="padding:0.6rem 0.75rem; background:rgba(255,255,255,0.04); border:1px solid var(--glass-border); border-radius:10px; color:var(--text-muted); font-size:0.9rem; margin-bottom:1rem;">
+                        📧 ${currentUser?.email} <span style="font-size:0.78rem;">(ваш email як капітана)</span>
+                    </div>
                     <div style="margin-bottom:0.5rem;"><label style="font-size:0.9rem; color:var(--text-muted);">Учасники команди (макс. 10):</label></div>
                     <div id="members-list"></div>
                     <button type="button" id="add-member-btn" onclick="addMemberInput()" class="btn btn-secondary" style="width:100%; margin-bottom:1rem;">+ Додати учасника (0/10)</button>
@@ -268,25 +292,32 @@ async function openTournament(id) {
                 </form>`;
             document.getElementById('form-team-reg').onsubmit = handleTeamRegistration;
         }
-    } else if (currentRole === 'Team') {
+    } else if (role === 'Team') {
         regWrap.classList.remove('hidden');
         regWrap.innerHTML = `<div class="status-full-banner banner-info">ℹ️ Реєстрація закрита (${sLabel(t.status)}).</div>`;
+    } else if (!currentUser && t.status === 'Registration' && !regExpired) {
+        regWrap.classList.remove('hidden');
+        regWrap.innerHTML = `<div class="status-full-banner banner-info" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+            <span>ℹ️ Для реєстрації команди потрібен обліковий запис.</span>
+            <button onclick="openRegisterModal()" class="btn" style="padding:7px 16px; font-size:0.88rem;">Я не зареєстрований</button>
+            <button onclick="openLoginModal()" class="btn btn-secondary" style="padding:7px 16px; font-size:0.88rem;">Увійти</button>
+        </div>`;
     } else {
         regWrap.classList.add('hidden');
     }
 
     // Панель керування адміністратора
     const adminWrap = document.getElementById('admin-controls');
-    adminWrap.classList.toggle('hidden', currentRole !== 'Admin');
-    if (currentRole === 'Admin') {
+    adminWrap.classList.toggle('hidden', role !== 'Admin');
+    if (role === 'Admin') {
         const STEPS = [
             { key: 'Registration', icon: '📋', label: 'Реєстрація', desc: 'Команди можуть реєструватися. Додайте раунди.', nextLabel: 'Розпочати турнір →', nextKey: 'Running', warn: 'Розпочати турнір? Нові реєстрації команд будуть закриті.' },
-            { key: 'Running', icon: '🏃', label: 'Триває', desc: 'Команди здають роботи. Реєстрація закрита.', nextLabel: 'Перейти до оцінювання →', nextKey: 'Evaluation', warn: 'Перевести турнір в режим оцінювання? Подача нових робіт буде закрита.' },
-            { key: 'Evaluation', icon: '⚖️', label: 'Оцінювання', desc: 'Журі оцінює роботи. Подача закрита.', nextLabel: 'Завершити турнір →', nextKey: 'Finished', warn: 'Завершити турнір? Дія незворотна.' },
-            { key: 'Finished', icon: '🏁', label: 'Завершено', desc: 'Турнір завершено. Усі дані зафіксовані.', nextLabel: null, nextKey: null, warn: null },
+            { key: 'Running',      icon: '🏃', label: 'Триває',     desc: 'Команди здають роботи. Реєстрація закрита.',     nextLabel: 'Перейти до оцінювання →', nextKey: 'Evaluation', warn: 'Перевести турнір в режим оцінювання? Подача нових робіт буде закрита.' },
+            { key: 'Evaluation',   icon: '⚖️', label: 'Оцінювання', desc: 'Журі оцінює роботи. Подача закрита.',            nextLabel: 'Завершити турнір →', nextKey: 'Finished', warn: 'Завершити турнір? Дія незворотна.' },
+            { key: 'Finished',     icon: '🏁', label: 'Завершено',  desc: 'Турнір завершено. Усі дані зафіксовані.',        nextLabel: null, nextKey: null, warn: null },
         ];
-        const idx = STEPS.findIndex(s => s.key === t.status);
-        const cur = STEPS[idx] ?? STEPS[0];
+        const idx  = STEPS.findIndex(s => s.key === t.status);
+        const cur  = STEPS[idx] ?? STEPS[0];
         const next = cur.nextKey ? STEPS.find(s => s.key === cur.nextKey) : null;
 
         const stepper = STEPS.map((s, i) => `
@@ -319,14 +350,14 @@ async function openTournament(id) {
 
     // Блок подачі робіт командою
     const teamWrap = document.getElementById('team-controls');
-    teamWrap.classList.toggle('hidden', currentRole !== 'Team');
-    if (currentRole === 'Team') {
+    teamWrap.classList.toggle('hidden', role !== 'Team');
+    if (role === 'Team') {
         const isReg = t.status === 'Registration';
         document.querySelector('#team-controls h3').textContent =
             isFinished ? '🏁 Турнір завершено — подача закрита' :
-                isEval ? '⚖️ Оцінювання — можна лише змінити існуючі роботи' :
-                    isReg ? '📝 Реєстрація — подача закрита до початку турніру' :
-                        '📤 Подача результатів';
+            isEval     ? '⚖️ Оцінювання — можна лише змінити існуючі роботи' :
+            isReg      ? '📝 Реєстрація — подача закрита до початку турніру' :
+                         '📤 Подача результатів';
         loadActiveRounds(id, isFinished, isEval, isReg);
     }
 
@@ -352,25 +383,20 @@ async function advanceStage(id, newStatus, warn) {
 async function handleTeamRegistration(e) {
     e.preventDefault();
     const nameInput = document.getElementById('reg-team-name');
-    const emailInput = document.getElementById('reg-captain-email');
-    const members = pendingMembers.filter(m => m.name.trim()).map(m => m.email ? `${m.name} <${m.email}>` : m.name).join(', ');
+    const members   = pendingMembers.filter(m => m.name.trim()).map(m => m.email ? `${m.name} <${m.email}>` : m.name).join(', ');
     try {
-        const res = await api('/api/teams', 'POST', {
+        await api('/api/teams', 'POST', {
             tournamentId: currentTournamentId,
-            name: nameInput.value.trim(),
-            captainName: document.getElementById('reg-captain-name').value,
-            captainEmail: emailInput.value,
+            name:         nameInput.value.trim(),
+            captainName:  document.getElementById('reg-captain-name').value,
+            captainEmail: currentUser?.email || '',
             members
         });
-        updateProfileTeamId(res.id);
+        await initAuth();
         pendingMembers = [];
         openTournament(currentTournamentId);
     } catch (err) {
-        const msg = err.message || '';
-        if (msg.toLowerCase().includes('пошта') || msg.toLowerCase().includes('email'))
-            showFieldError(emailInput, msg);
-        else
-            showFieldError(nameInput, msg);
+        showFieldError(nameInput, err.message || 'Помилка');
     }
 }
 
@@ -380,7 +406,7 @@ async function loadRounds(tournamentId) {
     const now = new Date();
     document.getElementById('round-list').innerHTML = rounds.length
         ? rounds.map(r => {
-            const dl = new Date(r.deadline);
+            const dl      = new Date(r.deadline);
             const expired = dl < now;
             return `
             <div style="padding:0.75rem 1rem; background:rgba(255,255,255,0.05); border-radius:10px; margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem;">
@@ -422,7 +448,7 @@ function showCreateRound() {
 async function submitNewRound() {
     const name = document.getElementById('nr-name')?.value.trim();
     const desc = document.getElementById('nr-desc')?.value.trim() || '';
-    const dl = document.getElementById('nr-deadline')?.value;
+    const dl   = document.getElementById('nr-deadline')?.value;
     if (!name) { document.getElementById('nr-name').style.borderColor = '#ef4444'; document.getElementById('nr-name').focus(); return; }
     await api('/api/rounds', 'POST', {
         tournamentId: currentTournamentId, name, description: desc, requirements: '',
@@ -435,11 +461,12 @@ async function submitNewRound() {
 // Подача та редагування робіт командами
 async function loadActiveRounds(tournamentId, locked, editOnly, regStage) {
     const rounds = await api(`/api/rounds/${tournamentId}`);
-    const wrap = document.getElementById('active-rounds-for-submission');
+    const wrap   = document.getElementById('active-rounds-for-submission');
+    const myTeamId = currentUser?.teamId;
 
     if (!rounds.length) { wrap.innerHTML = '<p style="color:var(--text-muted);">Раундів немає.</p>'; return; }
-    if (locked) { wrap.innerHTML = '<p style="color:var(--text-muted);">Подача закрита на цьому етапі.</p>'; return; }
-    if (regStage) { wrap.innerHTML = '<div class="status-full-banner banner-info">📝 Подача робіт буде доступна після того, як адміністратор розпочне турнір.</div>'; return; }
+    if (locked)         { wrap.innerHTML = '<p style="color:var(--text-muted);">Подача закрита на цьому етапі.</p>'; return; }
+    if (regStage)       { wrap.innerHTML = '<div class="status-full-banner banner-info">📝 Подача робіт буде доступна після того, як адміністратор розпочне турнір.</div>'; return; }
 
     const now = new Date();
     let mySubs = [];
@@ -449,14 +476,14 @@ async function loadActiveRounds(tournamentId, locked, editOnly, regStage) {
     }
 
     wrap.innerHTML = rounds.map(r => {
-        const sub = mySubs.find(s => +s.roundId === +r.id);
+        const sub      = mySubs.find(s => +s.roundId === +r.id);
         const deadline = new Date(r.deadline);
-        const expired = deadline < now;
-        const modInfo = sub?.lastModified
+        const expired  = deadline < now;
+        const modInfo  = sub?.lastModified
             ? `<div style="color:var(--text-muted); font-size:0.78rem; margin-top:0.4rem;">🗓 Змінено: ${new Date(sub.lastModified).toLocaleString('uk-UA')}</div>`
             : sub
-                ? `<div style="color:var(--text-muted); font-size:0.78rem; margin-top:0.4rem;">🗓 Здано: ${new Date(sub.timestamp).toLocaleString('uk-UA')}</div>`
-                : '';
+            ? `<div style="color:var(--text-muted); font-size:0.78rem; margin-top:0.4rem;">🗓 Здано: ${new Date(sub.timestamp).toLocaleString('uk-UA')}</div>`
+            : '';
 
         if (sub) {
             const canEdit = !expired || editOnly;
@@ -506,9 +533,9 @@ async function loadActiveRounds(tournamentId, locked, editOnly, regStage) {
 function showEditSubmission(roundId, ghEnc, vidEnc, descEnc) {
     const card = document.getElementById(`round-card-${roundId}`);
     if (!card) return;
-    const gh = ghEnc ? decodeURIComponent(ghEnc) : '';
-    const vid = vidEnc ? decodeURIComponent(vidEnc) : '';
-    const d = descEnc ? decodeURIComponent(descEnc) : '';
+    const gh  = ghEnc   ? decodeURIComponent(ghEnc)   : '';
+    const vid = vidEnc  ? decodeURIComponent(vidEnc)  : '';
+    const d   = descEnc ? decodeURIComponent(descEnc) : '';
     card.innerHTML = `
         <div class="evaluated-badge" style="margin-bottom:0.75rem;">✏️ Редагування</div>
         <form onsubmit="submitWork(event,${roundId})" style="margin-top:0.5rem;">
@@ -524,11 +551,11 @@ function showEditSubmission(roundId, ghEnc, vidEnc, descEnc) {
 
 async function submitWork(e, roundId) {
     e.preventDefault();
-    if (!myTeamId) { alert('Спочатку зареєструйте команду!'); return; }
+    if (!currentUser?.teamId) { alert('Спочатку зареєструйте команду в цьому турнірі!'); return; }
     const inputs = e.target.querySelectorAll('input');
     try {
         await api('/api/submissions', 'POST', {
-            roundId, teamId: parseInt(myTeamId),
+            roundId, teamId: parseInt(currentUser.teamId),
             githubUrl: inputs[0].value, videoUrl: inputs[1].value, description: inputs[2].value
         });
         loadActiveRounds(currentTournamentId);
@@ -542,12 +569,12 @@ async function loadAnnouncements(tournamentId) {
     let anns;
     try { anns = await api(`/api/announcements/${tournamentId}`); } catch { anns = []; }
 
-    const isAdmin = currentRole === 'Admin';
-    const key = `ann_collapsed_${tournamentId}`;
+    const isAdmin   = currentUser?.role === 'Admin';
+    const key       = `ann_collapsed_${tournamentId}`;
     const collapsed = localStorage.getItem(key) === '1';
 
     const items = anns.map(a => {
-        const dt = new Date(a.createdAt).toLocaleString('uk-UA');
+        const dt   = new Date(a.createdAt).toLocaleString('uk-UA');
         const html = a.content
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" style="color:var(--accent);">$1</a>')
@@ -588,7 +615,7 @@ function toggleAnnouncements(tournamentId) {
 }
 
 async function createAnnouncement(tournamentId) {
-    const input = document.getElementById('ann-input');
+    const input   = document.getElementById('ann-input');
     const content = input?.value.trim();
     if (!content) { input.style.borderColor = '#ef4444'; input.focus(); return; }
     input.style.borderColor = '';
@@ -605,15 +632,15 @@ async function deleteAnnouncement(id, tournamentId) {
 
 // Таблиця лідерів (Таблиця)
 async function loadLeaderboard(tournamentId) {
-    const data = await api(`/api/leaderboard/${tournamentId}`);
-    const t = tournaments.find(x => x.id === tournamentId);
+    const data   = await api(`/api/leaderboard/${tournamentId}`);
+    const t      = tournaments.find(x => x.id === tournamentId);
     const medals = ['🥇', '🥈', '🥉'];
     document.getElementById('leaderboard-title').textContent = t ? `${t.name} — Таблиця лідерів` : 'Таблиця лідерів';
     document.getElementById('leaderboard-body').innerHTML = data.length
         ? data.map((row, i) => {
             const score = row.hasEvaluations ? `<span class="score-badge">${row.score.toFixed(1)}</span>` : `<span style="color:var(--text-muted); font-size:0.85rem; font-style:italic;">Не оцінено</span>`;
             const place = row.hasEvaluations ? (medals[i] || '#' + (i + 1)) : '—';
-            const cls = i === 0 && row.hasEvaluations ? 'row-gold' : i === 1 && row.hasEvaluations ? 'row-silver' : i === 2 && row.hasEvaluations ? 'row-bronze' : '';
+            const cls   = i === 0 && row.hasEvaluations ? 'row-gold' : i === 1 && row.hasEvaluations ? 'row-silver' : i === 2 && row.hasEvaluations ? 'row-bronze' : '';
             return `<tr class="${cls}"><td class="rank">${place}</td><td><strong>${row.name}</strong></td><td>${score}</td></tr>`;
         }).join('')
         : `<tr><td colspan="3" style="color:var(--text-muted); padding:2rem; text-align:center;">Команд ще немає.</td></tr>`;
@@ -643,9 +670,9 @@ async function loadJurySubmissions() {
 
     const finished = t?.status === 'Finished';
     wrap.innerHTML = subs.map(s => {
-        const ev = evals.find(e => +e.submissionId === +s.id);
-        const ts = ev ? ev.techScore : '—';
-        const fs = ev ? ev.functionalityScore : '—';
+        const ev   = evals.find(e => +e.submissionId === +s.id);
+        const ts   = ev ? ev.techScore : '—';
+        const fs   = ev ? ev.functionalityScore : '—';
         const note = ev ? (ev.comment || '') : '';
 
         if (finished) return `
@@ -697,13 +724,13 @@ async function loadJurySubmissions() {
 
 async function evaluateSubmission(e, submissionId) {
     e.preventDefault();
-    const btn = e.target.querySelector('button[type="submit"]');
+    const btn    = e.target.querySelector('button[type="submit"]');
     const inputs = e.target.querySelectorAll('input');
     await api('/api/evaluations', 'POST', {
         submissionId,
-        techScore: parseInt(inputs[0].value),
+        techScore:          parseInt(inputs[0].value),
         functionalityScore: parseInt(inputs[1].value),
-        comment: inputs[2].value
+        comment:            inputs[2].value
     });
     btn.innerText = '✓ Збережено';
     btn.style.background = '#10b981'; btn.style.border = '1px solid #10b981';
@@ -711,9 +738,4 @@ async function evaluateSubmission(e, submissionId) {
 }
 
 // Запуск ініціалізації додатка
-renderProfileSelect();
-updateUIForRole();
-validateProfileTeamIds().then(() => {
-    renderProfileSelect();
-    loadTournaments();
-});
+initAuth().then(() => loadTournaments());

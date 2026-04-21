@@ -417,8 +417,49 @@ input:focus, textarea:focus {
     word-break: break-word;
 }
 
+
 .ann-meta {
     color: var(--text-muted);
     font-size: 0.78rem;
     margin-top: 0.5rem;
+}
+
+/* Модальні вікна */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 200;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 201;
+    background: #12132a;
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 2rem;
+    min-width: min(400px, calc(100vw - 2rem));
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.6);
+    animation: fadeIn 0.18s ease;
+}
+
+.modal h3 {
+    margin: 0 0 1.25rem;
+    font-size: 1.15rem;
+}
+
+.modal-error {
+    color: #ef4444;
+    font-size: 0.88rem;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(239, 68, 68, 0.25);
 }
