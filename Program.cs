@@ -29,14 +29,6 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope()) {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
-    db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Users"" (
-        ""Id""           INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-        ""Name""         TEXT NOT NULL DEFAULT '',
-        ""Email""        TEXT NOT NULL DEFAULT '',
-        ""PasswordHash"" TEXT NOT NULL DEFAULT '',
-        ""Role""         TEXT NOT NULL DEFAULT 'Team',
-        ""TeamId""       INTEGER NULL
-    )");
     if (!db.Users.Any()) {
         db.Users.AddRange(
             new User { Name = "Адміністратор", Email = "admin@role.com", PasswordHash = HashPass("admin123"), Role = "Admin" },
