@@ -1,4 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -6,6 +12,30 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = AppContext.BaseDirectory,
     WebRootPath = "wwwroot"
 });
+
+// Налаштування JWT
+var jwtKey = "super-secret-key-that-is-at-least-thirty-two-characters-long";
+var key = Encoding.ASCII.GetBytes(jwtKey);
+
+builder.Services.AddAuthentication(x =>
+{
+    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(x =>
+{
+    x.RequireHttpsMetadata = false;
+    x.SaveToken = true;
+    x.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateIssuer = false,
+        ValidateAudience = false
+    };
+});
+
+builder.Services.AddAuthorization();
 
 // Налаштування сервісів та бази даних
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite("Data Source=tournaments.db"));
@@ -15,7 +45,17 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope()) {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+    
+    // Створення дефолтних користувачів, якщо їх немає
+    if (!db.Users.Any()) {
+        db.Users.Add(new User { Username = "admin", Password = "123", Role = "Admin" });
+        db.Users.Add(new User { Username = "jury",  Password = "123", Role = "Jury" });
+        db.SaveChanges();
+    }
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Обробка статичних файлів (Frontend)
 app.UseDefaultFiles();
@@ -27,16 +67,37 @@ app.UseStaticFiles(new StaticFileOptions {
     }
 });
 
-// Ендпоінти для Турнірів
+// ─── Авторизація ─────────────────────────────────────────────────────────────
+
+app.MapPost("/api/auth/login", async (LoginRequest req, AppDbContext db) => {
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Username == req.Username && u.Password == req.Password);
+    if (user == null) return Results.Unauthorized();
+
+    var tokenHandler = new JwtSecurityTokenHandler();
+    var tokenDescriptor = new SecurityTokenDescriptor
+    {
+        Subject = new ClaimsIdentity(new[] { 
+            new Claim(ClaimTypes.Name, user.Username),
+            new Claim(ClaimTypes.Role, user.Role),
+            new Claim("TeamId", user.TeamId?.ToString() ?? "")
+        }),
+        Expires = DateTime.UtcNow.AddDays(7),
+        SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+    };
+    var token = tokenHandler.CreateToken(tokenDescriptor);
+    return Results.Ok(new { token = tokenHandler.WriteToken(token), role = user.Role, teamId = user.TeamId, username = user.Username });
+});
+
+// ─── Ендпоінти для Турнірів ──────────────────────────────────────────────────
 app.MapGet("/api/tournaments", async (AppDbContext db) => await db.Tournaments.ToListAsync());
 
-app.MapPost("/api/tournaments", async (Tournament t, AppDbContext db) => {
+app.MapPost("/api/tournaments", [Authorize(Roles = "Admin")] async (Tournament t, AppDbContext db) => {
     db.Tournaments.Add(t);
     await db.SaveChangesAsync();
     return Results.Created($"/api/tournaments/{t.Id}", t);
 });
 
-app.MapPatch("/api/tournaments/{id}/status", async (int id, string status, AppDbContext db) => {
+app.MapPatch("/api/tournaments/{id}/status", [Authorize(Roles = "Admin")] async (int id, string status, AppDbContext db) => {
     var t = await db.Tournaments.FindAsync(id);
     if (t == null) return Results.NotFound();
     t.Status = status;
@@ -44,7 +105,7 @@ app.MapPatch("/api/tournaments/{id}/status", async (int id, string status, AppDb
     return Results.Ok(t);
 });
 
-// Ендпоінти для Команд
+// ─── Ендпоінти для Команд ────────────────────────────────────────────────────
 app.MapGet("/api/teams", async (AppDbContext db) => await db.Teams.ToListAsync());
 app.MapGet("/api/teams/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Teams.Where(t => t.TournamentId == tournamentId).ToListAsync());
@@ -54,26 +115,40 @@ app.MapPost("/api/teams", async (Team team, AppDbContext db) => {
     if (tour == null) return Results.NotFound();
     if (DateTime.UtcNow > tour.RegistrationEnd)
         return Results.BadRequest(new { message = "Термін реєстрації закінчився. Нові команди не приймаються." });
+    
     if (await db.Teams.AnyAsync(t => t.TournamentId == team.TournamentId && t.Name == team.Name))
         return Results.BadRequest(new { message = "Команда з таким іменем вже існує!" });
+    
     if (await db.Teams.AnyAsync(t => t.TournamentId == team.TournamentId && t.CaptainEmail.ToLower() == team.CaptainEmail.ToLower()))
         return Results.BadRequest(new { message = "Ця електронна пошта вже зареєстрована в цьому турнірі!" });
+
+    // При реєстрації команди автоматично створюємо користувача
+    var user = new User { 
+        Username = team.Name, 
+        Password = "123", // В реалі треба хешувати та давати вводити
+        Role = "Team" 
+    };
+    db.Users.Add(user);
     db.Teams.Add(team);
     await db.SaveChangesAsync();
+    
+    user.TeamId = team.Id;
+    await db.SaveChangesAsync();
+
     return Results.Ok(team);
 });
 
-// Ендпоінти для Раундів
+// ─── Ендпоінти для Раундів ───────────────────────────────────────────────────
 app.MapGet("/api/rounds/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Rounds.Where(r => r.TournamentId == tournamentId).ToListAsync());
 
-app.MapPost("/api/rounds", async (Round round, AppDbContext db) => {
+app.MapPost("/api/rounds", [Authorize(Roles = "Admin")] async (Round round, AppDbContext db) => {
     db.Rounds.Add(round);
     await db.SaveChangesAsync();
     return Results.Ok(round);
 });
 
-// Ендпоінти для Подачі робіт (Submissions)
+// ─── Ендпоінти для Подачі робіт (Submissions) ────────────────────────────────
 app.MapGet("/api/submissions", async (AppDbContext db, int? tournamentId) => {
     var rounds = await db.Rounds.ToListAsync();
     var teams  = await db.Teams.ToListAsync();
@@ -89,11 +164,16 @@ app.MapGet("/api/submissions", async (AppDbContext db, int? tournamentId) => {
     });
 });
 
-app.MapPost("/api/submissions", async (Submission sub, AppDbContext db) => {
+app.MapPost("/api/submissions", [Authorize(Roles = "Team")] async (Submission sub, AppDbContext db, ClaimsPrincipal user) => {
+    var teamIdClaim = user.FindFirst("TeamId")?.Value;
+    if (string.IsNullOrEmpty(teamIdClaim) || int.Parse(teamIdClaim) != sub.TeamId)
+        return Results.Forbid();
+
     var round = await db.Rounds.FindAsync(sub.RoundId);
     if (round == null) return Results.NotFound();
     var tour = await db.Tournaments.FindAsync(round.TournamentId);
     if (tour == null) return Results.NotFound();
+    
     if (tour.Status == "Registration")
         return Results.BadRequest(new { message = "Подача недоступна на етапі реєстрації." });
     if (tour.Status == "Finished")
@@ -117,12 +197,12 @@ app.MapPost("/api/submissions", async (Submission sub, AppDbContext db) => {
     return Results.Ok(existing ?? sub);
 });
 
-// Ендпоінти для Оцінювання (Evaluations)
+// ─── Ендпоінти для Оцінювання (Evaluations) ──────────────────────────────────
 app.MapGet("/api/evaluations", async (AppDbContext db) => await db.Evaluations.ToListAsync());
 app.MapGet("/api/evaluations/{submissionId}", async (int submissionId, AppDbContext db) =>
     await db.Evaluations.Where(e => e.SubmissionId == submissionId).ToListAsync());
 
-app.MapPost("/api/evaluations", async (Evaluation eval, AppDbContext db) => {
+app.MapPost("/api/evaluations", [Authorize(Roles = "Jury")] async (Evaluation eval, AppDbContext db) => {
     var ex = await db.Evaluations.FirstOrDefaultAsync(e => e.SubmissionId == eval.SubmissionId);
     if (ex != null) {
         ex.TechScore = eval.TechScore;
@@ -135,7 +215,7 @@ app.MapPost("/api/evaluations", async (Evaluation eval, AppDbContext db) => {
     return Results.Ok(eval);
 });
 
-// Ендпоінти для Таблиці лідерів (Leaderboard)
+// ─── Ендпоінти для Таблиці лідерів (Leaderboard) ─────────────────────────────
 app.MapGet("/api/leaderboard/{tournamentId}", async (int tournamentId, AppDbContext db) => {
     var teams  = await db.Teams.Where(t => t.TournamentId == tournamentId).ToListAsync();
     var subs   = await db.Submissions.ToListAsync();
@@ -150,18 +230,18 @@ app.MapGet("/api/leaderboard/{tournamentId}", async (int tournamentId, AppDbCont
     return Results.Ok(result);
 });
 
-// Ендпоінти для Оголошень (Announcements)
+// ─── Ендпоінти для Оголошень (Announcements) ─────────────────────────────────
 app.MapGet("/api/announcements/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Announcements.Where(a => a.TournamentId == tournamentId).OrderByDescending(a => a.CreatedAt).ToListAsync());
 
-app.MapPost("/api/announcements", async (Announcement ann, AppDbContext db) => {
+app.MapPost("/api/announcements", [Authorize(Roles = "Admin")] async (Announcement ann, AppDbContext db) => {
     ann.CreatedAt = DateTime.UtcNow;
     db.Announcements.Add(ann);
     await db.SaveChangesAsync();
     return Results.Ok(ann);
 });
 
-app.MapDelete("/api/announcements/{id}", async (int id, AppDbContext db) => {
+app.MapDelete("/api/announcements/{id}", [Authorize(Roles = "Admin")] async (int id, AppDbContext db) => {
     var ann = await db.Announcements.FindAsync(id);
     if (ann == null) return Results.NotFound();
     db.Announcements.Remove(ann);
@@ -171,7 +251,18 @@ app.MapDelete("/api/announcements/{id}", async (int id, AppDbContext db) => {
 
 app.Run();
 
-// Моделі даних та Контекст БД
+// ─── Моделі даних та Контекст БД ─────────────────────────────────────────────
+
+public record LoginRequest(string Username, string Password);
+
+public class User {
+    public int Id { get; set; }
+    public string Username { get; set; } = "";
+    public string Password { get; set; } = ""; // В реальному проекті тут має бути PasswordHash
+    public string Role { get; set; } = "Team";
+    public int? TeamId { get; set; }
+}
+
 public class Tournament {
     public int Id { get; set; }
     public string Name { get; set; } = "";
@@ -231,6 +322,7 @@ public class Announcement {
 
 public class AppDbContext : DbContext {
     public AppDbContext(DbContextOptions<AppDbContext> o) : base(o) { }
+    public DbSet<User>         Users         => Set<User>();
     public DbSet<Tournament>   Tournaments   => Set<Tournament>();
     public DbSet<Team>         Teams         => Set<Team>();
     public DbSet<Round>        Rounds        => Set<Round>();
