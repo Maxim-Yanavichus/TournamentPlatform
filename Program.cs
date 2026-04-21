@@ -60,15 +60,21 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // Аутентифікація
-app.MapGet("/api/auth/me", (HttpContext ctx) => {
+app.MapGet("/api/auth/me", async (HttpContext ctx, AppDbContext db) => {
     if (ctx.User.Identity?.IsAuthenticated != true) return Results.Ok(new { authenticated = false });
+    var userId = int.Parse(ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    var user   = await db.Users.FindAsync(userId);
+    if (user == null) {
+        await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return Results.Ok(new { authenticated = false });
+    }
     return Results.Ok(new {
         authenticated = true,
-        id     = int.Parse(ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)!),
-        name   = ctx.User.FindFirstValue(ClaimTypes.Name),
-        email  = ctx.User.FindFirstValue(ClaimTypes.Email),
-        role   = ctx.User.FindFirstValue(ClaimTypes.Role),
-        teamId = ctx.User.FindFirstValue("TeamId") is string tid ? (int?)int.Parse(tid) : null
+        id     = user.Id,
+        name   = user.Name,
+        email  = user.Email,
+        role   = user.Role,
+        teamId = user.TeamId
     });
 });
 
