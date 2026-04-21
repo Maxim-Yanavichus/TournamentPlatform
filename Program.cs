@@ -88,6 +88,8 @@ app.MapPost("/api/auth/logout", async (HttpContext ctx) => {
 app.MapPost("/api/auth/register-team", async (RegisterDto req, AppDbContext db, HttpContext ctx) => {
     if (await db.Users.AnyAsync(u => u.Email.ToLower() == req.Email.ToLower()))
         return Results.BadRequest(new { message = "Користувач з таким email вже існує." });
+    if (await db.Users.AnyAsync(u => u.Name.ToLower() == req.Name.ToLower()))
+        return Results.BadRequest(new { message = "Користувач з таким ПІБ вже зареєстрований." });
     var user = new User { Name = req.Name, Email = req.Email, PasswordHash = HashPass(req.Password), Role = "Team" };
     db.Users.Add(user);
     await db.SaveChangesAsync();
