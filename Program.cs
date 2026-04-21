@@ -126,7 +126,12 @@ app.MapPost("/api/teams", async (Team team, AppDbContext db, HttpContext ctx) =>
     if (tour == null) return Results.NotFound();
     if (DateTime.UtcNow > tour.RegistrationEnd)
         return Results.BadRequest(new { message = "Термін реєстрації закінчився. Нові команди не приймаються." });
-    if (await db.Teams.AnyAsync(t => t.TournamentId == team.TournamentId && t.Name == team.Name))
+    if (tour.MaxTeams.HasValue) {
+        var teamCount = await db.Teams.CountAsync(t => t.TournamentId == team.TournamentId);
+        if (teamCount >= tour.MaxTeams.Value)
+            return Results.BadRequest(new { message = $"Досягнуто максимальну кількість команд ({tour.MaxTeams.Value})." });
+    }
+    if (await db.Teams.AnyAsync(t => t.TournamentId == team.TournamentId && t.Name.ToLower() == team.Name.ToLower()))
         return Results.BadRequest(new { message = "Команда з таким іменем вже існує!" });
     var user = await db.Users.FindAsync(userId);
     team.CaptainEmail = user!.Email;

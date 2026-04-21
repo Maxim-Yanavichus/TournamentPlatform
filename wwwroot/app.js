@@ -383,7 +383,22 @@ async function advanceStage(id, newStatus, warn) {
 async function handleTeamRegistration(e) {
     e.preventDefault();
     const nameInput = document.getElementById('reg-team-name');
-    const members   = pendingMembers.filter(m => m.name.trim()).map(m => m.email ? `${m.name} <${m.email}>` : m.name).join(', ');
+
+    // Перевірка унікальності email серед учасників
+    const filledEmails = pendingMembers
+        .filter(m => m.email && m.email.trim())
+        .map(m => m.email.trim().toLowerCase());
+    const uniqueEmails = new Set(filledEmails);
+    if (filledEmails.length !== uniqueEmails.size) {
+        alert('⚠ Кожен учасник повинен мати унікальну електронну пошту!');
+        return;
+    }
+    if (currentUser?.email && filledEmails.includes(currentUser.email.toLowerCase())) {
+        alert('⚠ Email учасника не може співпадати з email капітана!');
+        return;
+    }
+
+    const members = pendingMembers.filter(m => m.name.trim()).map(m => m.email ? `${m.name} <${m.email}>` : m.name).join(', ');
     try {
         await api('/api/teams', 'POST', {
             tournamentId: currentTournamentId,
