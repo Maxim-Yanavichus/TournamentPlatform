@@ -6,7 +6,7 @@
    `dotnet run --urls "http://localhost:5000"`
 
 2. **Запуск через файл**:
-   Запустіть `TournamentPlatform.exe` у папці `bin/Release`.
+   Запустіть `TournamentPlatform.exe` у папці `bin/Release/net10.0`
 
 ### Повне скидання програми
 Виконує повний "зброс" даних, які були зроблені у програмі (видаляє базу даних):
