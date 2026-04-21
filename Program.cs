@@ -30,15 +30,13 @@ app.UseStaticFiles(new StaticFileOptions {
 // Ендпоінти для Турнірів
 app.MapGet("/api/tournaments", async (AppDbContext db) => await db.Tournaments.ToListAsync());
 
-app.MapPost("/api/tournaments", async (HttpRequest req, Tournament t, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Admin") return Results.BadRequest(new { message = "Немає прав (потрібен Admin)." });
+app.MapPost("/api/tournaments", async (Tournament t, AppDbContext db) => {
     db.Tournaments.Add(t);
     await db.SaveChangesAsync();
     return Results.Created($"/api/tournaments/{t.Id}", t);
 });
 
-app.MapPatch("/api/tournaments/{id}/status", async (HttpRequest req, int id, string status, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Admin") return Results.BadRequest(new { message = "Немає прав (потрібен Admin)." });
+app.MapPatch("/api/tournaments/{id}/status", async (int id, string status, AppDbContext db) => {
     var t = await db.Tournaments.FindAsync(id);
     if (t == null) return Results.NotFound();
     t.Status = status;
@@ -51,8 +49,7 @@ app.MapGet("/api/teams", async (AppDbContext db) => await db.Teams.ToListAsync()
 app.MapGet("/api/teams/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Teams.Where(t => t.TournamentId == tournamentId).ToListAsync());
 
-app.MapPost("/api/teams", async (HttpRequest req, Team team, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Team") return Results.BadRequest(new { message = "Тільки команди можуть реєструватися." });
+app.MapPost("/api/teams", async (Team team, AppDbContext db) => {
     var tour = await db.Tournaments.FindAsync(team.TournamentId);
     if (tour == null) return Results.NotFound();
     if (DateTime.UtcNow > tour.RegistrationEnd)
@@ -70,14 +67,13 @@ app.MapPost("/api/teams", async (HttpRequest req, Team team, AppDbContext db) =>
 app.MapGet("/api/rounds/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Rounds.Where(r => r.TournamentId == tournamentId).ToListAsync());
 
-app.MapPost("/api/rounds", async (HttpRequest req, Round round, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Admin") return Results.BadRequest(new { message = "Тільки адміністратор може додавати раунди." });
+app.MapPost("/api/rounds", async (Round round, AppDbContext db) => {
     db.Rounds.Add(round);
     await db.SaveChangesAsync();
     return Results.Ok(round);
 });
 
-// Ендпоінти для Подачі робіт (Submissions)
+// Ендпоінти для Подачі робіт (Подачі)
 app.MapGet("/api/submissions", async (AppDbContext db, int? tournamentId) => {
     var rounds = await db.Rounds.ToListAsync();
     var teams  = await db.Teams.ToListAsync();
@@ -93,8 +89,7 @@ app.MapGet("/api/submissions", async (AppDbContext db, int? tournamentId) => {
     });
 });
 
-app.MapPost("/api/submissions", async (HttpRequest req, Submission sub, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Team") return Results.BadRequest(new { message = "Тільки команди можуть подавати роботи." });
+app.MapPost("/api/submissions", async (Submission sub, AppDbContext db) => {
     var round = await db.Rounds.FindAsync(sub.RoundId);
     if (round == null) return Results.NotFound();
     var tour = await db.Tournaments.FindAsync(round.TournamentId);
@@ -122,13 +117,12 @@ app.MapPost("/api/submissions", async (HttpRequest req, Submission sub, AppDbCon
     return Results.Ok(existing ?? sub);
 });
 
-// Ендпоінти для Оцінювання (Evaluations)
+// Ендпоінти для Оцінювання (Оцінки)
 app.MapGet("/api/evaluations", async (AppDbContext db) => await db.Evaluations.ToListAsync());
 app.MapGet("/api/evaluations/{submissionId}", async (int submissionId, AppDbContext db) =>
     await db.Evaluations.Where(e => e.SubmissionId == submissionId).ToListAsync());
 
-app.MapPost("/api/evaluations", async (HttpRequest req, Evaluation eval, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Jury") return Results.BadRequest(new { message = "Тільки журі може оцінювати роботи." });
+app.MapPost("/api/evaluations", async (Evaluation eval, AppDbContext db) => {
     var ex = await db.Evaluations.FirstOrDefaultAsync(e => e.SubmissionId == eval.SubmissionId);
     if (ex != null) {
         ex.TechScore = eval.TechScore;
@@ -141,7 +135,7 @@ app.MapPost("/api/evaluations", async (HttpRequest req, Evaluation eval, AppDbCo
     return Results.Ok(eval);
 });
 
-// Ендпоінти для Таблиці лідерів (Leaderboard)
+// Ендпоінти для Таблиці лідерів (Таблиця)
 app.MapGet("/api/leaderboard/{tournamentId}", async (int tournamentId, AppDbContext db) => {
     var teams  = await db.Teams.Where(t => t.TournamentId == tournamentId).ToListAsync();
     var subs   = await db.Submissions.ToListAsync();
@@ -156,20 +150,18 @@ app.MapGet("/api/leaderboard/{tournamentId}", async (int tournamentId, AppDbCont
     return Results.Ok(result);
 });
 
-// Ендпоінти для Оголошень (Announcements)
+// Ендпоінти для Оголошень (Оголошення)
 app.MapGet("/api/announcements/{tournamentId}", async (int tournamentId, AppDbContext db) =>
     await db.Announcements.Where(a => a.TournamentId == tournamentId).OrderByDescending(a => a.CreatedAt).ToListAsync());
 
-app.MapPost("/api/announcements", async (HttpRequest req, Announcement ann, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Admin") return Results.BadRequest(new { message = "Тільки адміністратор може публікувати оголошення." });
+app.MapPost("/api/announcements", async (Announcement ann, AppDbContext db) => {
     ann.CreatedAt = DateTime.UtcNow;
     db.Announcements.Add(ann);
     await db.SaveChangesAsync();
     return Results.Ok(ann);
 });
 
-app.MapDelete("/api/announcements/{id}", async (HttpRequest req, int id, AppDbContext db) => {
-    if (req.Headers["X-User-Role"] != "Admin") return Results.BadRequest(new { message = "Тільки адміністратор може видаляти оголошення." });
+app.MapDelete("/api/announcements/{id}", async (int id, AppDbContext db) => {
     var ann = await db.Announcements.FindAsync(id);
     if (ann == null) return Results.NotFound();
     db.Announcements.Remove(ann);

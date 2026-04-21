@@ -13,36 +13,15 @@
 <body>
     <nav>
         <div class="logo">TourneyFlow</div>
-        <div id="nav-auth" style="display:flex; align-items:center; gap:0.75rem;">
-            <span id="user-info" style="color:var(--text-muted); font-size:0.85rem;"></span>
-            <button id="btn-login-view" onclick="showView('login')" class="btn" style="padding:7px 14px;">Увійти</button>
-            <button id="btn-logout" onclick="logout()" class="btn btn-secondary hidden" style="padding:7px 14px;">Вийти</button>
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+            <span id="profile-current-label" style="color:var(--text-muted); font-size:0.85rem;"></span>
+            <select id="profile-select" onchange="switchProfile(this.value)" style="width:auto; padding:7px 12px; margin:0; cursor:pointer;"></select>
+            <button onclick="addTeamProfile()" class="btn btn-secondary" style="padding:7px 14px; font-size:0.85rem; white-space:nowrap;">+ Команда</button>
             <button class="btn jury-only jury-panel-btn hidden" onclick="openJuryView(null)" style="border:1px solid var(--accent); padding:7px 14px;">⚖️ Всі роботи</button>
         </div>
     </nav>
 
     <main id="app">
-        <!-- Авторизація -->
-        <div id="view-login" class="card hidden animate-fade" style="max-width:400px; margin: 4rem auto;">
-            <h2 style="text-align:center; margin-bottom:1.5rem;">Вхід у систему</h2>
-            <form id="form-login">
-                <input type="text" id="login-username" placeholder="Логін (або назва команди)" required>
-                <input type="password" id="login-password" placeholder="Пароль" required>
-                
-                <div style="background:rgba(99,102,241,0.08); border:1px solid var(--glass-border); border-radius:12px; padding:0.85rem; margin-bottom:1.25rem;">
-                    <div style="font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:var(--primary);">💡 Підказка:</div>
-                    <div style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
-                        • Адмін: <code>admin</code> / <code>123</code><br>
-                        • Журі: <code>jury</code> / <code>123</code><br>
-                        • Команда: назва / <code>123</code>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn" style="width:100%;">Увійти</button>
-                <button type="button" class="btn btn-secondary" onclick="showView('tournaments')" style="width:100%; margin-top:0.5rem;">Скасувати</button>
-            </form>
-        </div>
-
         <!-- Список турнірів -->
         <div id="view-tournaments" class="animate-fade">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
