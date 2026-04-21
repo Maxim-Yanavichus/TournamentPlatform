@@ -1,19 +1,11 @@
-## Ігнорування скомпільованих файлів
-bin/
-obj/
-
-## База даних (генерується локально)
 tournaments.db
 tournaments.db-shm
 tournaments.db-wal
 
-## ASP.NET Core Data Protection keys
 **/DataProtection-Keys/
 
-## VS / Rider
 .vs/
 .idea/
 *.user
 
-## Логи
 *.log
